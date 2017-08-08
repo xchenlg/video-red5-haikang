@@ -27,7 +27,9 @@ import org.springframework.web.bind.annotation.ResponseBody;
 
 import com.sun.jna.Native;
 import com.sun.jna.NativeLong;
+import com.sun.jna.Pointer;
 import com.sun.jna.ptr.ByteByReference;
+import com.sun.jna.ptr.IntByReference;
 
 import chen.sdk.src.ClientDemo.HCNetSDK;
 import chen.sdk.src.ClientDemo.HCNetSDK.NET_DVR_DEVICEINFO_V30;
@@ -43,14 +45,16 @@ public class videoController {
 
 	protected static Logger logger = LoggerFactory.getLogger(PersonController.class);
 
-	private static Process p;
+	private Process p;
 	public static Date date = new Date();
-	private NativeLong uid = new NativeLong(-1);
-	private static NativeLong lPreviewHandle = new NativeLong(-1);
-	private static HCNetSDK sdk;
+	private NativeLong uid_turn = new NativeLong(-1);
+	private NativeLong uid_back = new NativeLong(-1);
+	private static HCNetSDK sdk_turn;
+	private static HCNetSDK sdk_playBack;
 	private String fileName;
 	private OutputStream out = null;
 	private static NativeLong m_lPlayHandle = null;// 播放句柄
+	public NativeLong lChannel;
 
 	// 从 application.properties 中读取配置，如取不到默认值为Hello Shanhy
 	@Value("${application.hello:Hello Angel}")
@@ -162,23 +166,29 @@ public class videoController {
 	 */
 	private void turnOperate(int operate) {
 
-		if (lPreviewHandle == null || sdk == null) {
-			lPreviewHandle = initSdk();
+		if (sdk_turn == null) {
+			sdk_turn = initSdk("turn");
 		}
 
-		sdk.NET_DVR_PTZControl(lPreviewHandle, operate, 0);
+		// 用户参数
+		HCNetSDK.NET_DVR_CLIENTINFO m_strClientInfo = new HCNetSDK.NET_DVR_CLIENTINFO();
+		m_strClientInfo.lChannel = lChannel;
+		// 预览句柄
+		NativeLong lPreviewHandle = sdk_turn.NET_DVR_RealPlay_V30(uid_turn, m_strClientInfo, null, null, true);
+
+		sdk_turn.NET_DVR_PTZControl(lPreviewHandle, operate, 0);
 		// 控制操作，左方向停止
 		try {
 			Thread.sleep(80);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
-		sdk.NET_DVR_PTZControl(lPreviewHandle, operate, 1);
+		sdk_turn.NET_DVR_PTZControl(lPreviewHandle, operate, 1);
 	}
 
-	private NativeLong initSdk() {
+	private HCNetSDK initSdk(String type) {
 
-		sdk = (HCNetSDK) Native.loadLibrary(
+		HCNetSDK sdk = (HCNetSDK) Native.loadLibrary(
 				Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 						+ "chen\\sdk\\HCNetSDK",
 				HCNetSDK.class);
@@ -187,30 +197,84 @@ public class videoController {
 			System.out.println("SDK初始化失败");
 		}
 
-		if (uid.longValue() > -1) {
-			// 先注销
-			sdk.NET_DVR_Logout_V30(uid);
-			uid = new NativeLong(-1);
+		NET_DVR_DEVICEINFO_V30 devinfo = new NET_DVR_DEVICEINFO_V30();// 设备信息
+		boolean bRet = false;
+		if ("turn".equals(type)) {
+			bRet = setUid_turn(sdk, devinfo);
+		} else
+			bRet = setUid_back(sdk, devinfo);
+
+		if (bRet == true) {
+			lChannel = new NativeLong(devinfo.byStartChan + 32);
+		} else {
+			lChannel = new NativeLong(devinfo.byStartChan);
 		}
 
-		NET_DVR_DEVICEINFO_V30 devinfo = new NET_DVR_DEVICEINFO_V30();// 设备信息
-		uid = sdk.NET_DVR_Login_V30(sdk_ip, Short.valueOf(sdk_port), sdk_user, sdk_password, devinfo);// 返回一个用户编号，同时将设备信息写入devinfo
-		int Iuid = uid.intValue();
+		return sdk;
+	}
+
+	private boolean setUid_turn(HCNetSDK sdk, NET_DVR_DEVICEINFO_V30 devinfo) {
+
+		if (uid_turn.longValue() > -1) {
+			// 先注销
+			sdk.NET_DVR_Logout_V30(uid_turn);
+			uid_turn = new NativeLong(-1);
+		}
+
+		uid_turn = sdk.NET_DVR_Login_V30(sdk_ip, Short.valueOf(sdk_port), sdk_user, sdk_password, devinfo);// 返回一个用户编号，同时将设备信息写入devinfo
+		int Iuid = uid_turn.intValue();
 		if (Iuid < 0) {
 			System.out.println("设备注册失败");
 		}
 
 		// 设备信息
-		for (int iChannum = 0; iChannum < devinfo.byChanNum; iChannum++) {
-			System.out.println(iChannum + "==========" + devinfo.byStartChan);
+		// for (int iChannum = 0; iChannum < devinfo.byChanNum; iChannum++) {
+		// System.out.println(iChannum + "==========" + devinfo.byStartChan);
+		// }
+
+		IntByReference ibrBytesReturned = new IntByReference(0);// 获取IP接入配置参数
+		boolean bRet = false;
+
+		HCNetSDK.NET_DVR_IPPARACFG m_strIpparaCfg = new HCNetSDK.NET_DVR_IPPARACFG();
+		m_strIpparaCfg.write();
+		Pointer lpIpParaConfig = m_strIpparaCfg.getPointer();
+		bRet = sdk.NET_DVR_GetDVRConfig(uid_turn, HCNetSDK.NET_DVR_GET_IPPARACFG, new NativeLong(0), lpIpParaConfig,
+				m_strIpparaCfg.size(), ibrBytesReturned);
+		m_strIpparaCfg.read();
+
+		return bRet;
+	}
+
+	private boolean setUid_back(HCNetSDK sdk, NET_DVR_DEVICEINFO_V30 devinfo) {
+
+		if (uid_back.longValue() > -1) {
+			// 先注销
+			sdk.NET_DVR_Logout_V30(uid_back);
+			uid_back = new NativeLong(-1);
 		}
 
-		// 用户参数
-		HCNetSDK.NET_DVR_CLIENTINFO m_strClientInfo = new HCNetSDK.NET_DVR_CLIENTINFO();
-		m_strClientInfo.lChannel = new NativeLong(devinfo.byStartChan);
+		uid_back = sdk.NET_DVR_Login_V30(sdk_ip, Short.valueOf(sdk_port), sdk_user, sdk_password, devinfo);// 返回一个用户编号，同时将设备信息写入devinfo
+		int Iuid = uid_back.intValue();
+		if (Iuid < 0) {
+			System.out.println("设备注册失败");
+		}
 
-		// 预览句柄
-		return sdk.NET_DVR_RealPlay_V30(uid, m_strClientInfo, null, null, true);
+		// 设备信息
+		// for (int iChannum = 0; iChannum < devinfo.byChanNum; iChannum++) {
+		// System.out.println(iChannum + "==========" + devinfo.byStartChan);
+		// }
+
+		IntByReference ibrBytesReturned = new IntByReference(0);// 获取IP接入配置参数
+		boolean bRet = false;
+
+		HCNetSDK.NET_DVR_IPPARACFG m_strIpparaCfg = new HCNetSDK.NET_DVR_IPPARACFG();
+		m_strIpparaCfg.write();
+		Pointer lpIpParaConfig = m_strIpparaCfg.getPointer();
+		bRet = sdk.NET_DVR_GetDVRConfig(uid_back, HCNetSDK.NET_DVR_GET_IPPARACFG, new NativeLong(0), lpIpParaConfig,
+				m_strIpparaCfg.size(), ibrBytesReturned);
+		m_strIpparaCfg.read();
+
+		return bRet;
 	}
 
 	@ResponseBody
@@ -307,8 +371,8 @@ public class videoController {
 	@RequestMapping("/playBackByTime")
 	public String playBackByTime(String sDate, String eDate) {
 
-		if (sdk == null) {
-			initSdk();
+		if (sdk_playBack == null) {
+			sdk_playBack = initSdk("back");
 		}
 		NET_DVR_TIME struStartTime = new NET_DVR_TIME();
 		NET_DVR_TIME struStopTime = new NET_DVR_TIME();
@@ -330,7 +394,7 @@ public class videoController {
 		struStopTime.dwMinute = new Integer(dt_e.getMinuteOfHour());
 		struStopTime.dwSecond = new Integer(dt_e.getSecondOfMinute());
 
-		m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(33), struStartTime, struStopTime, null);
+		m_lPlayHandle = sdk_playBack.NET_DVR_PlayBackByTime(uid_back, lChannel, struStartTime, struStopTime, null);
 
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
@@ -338,10 +402,25 @@ public class videoController {
 		} else {
 			FRealDataCallBack fPlayDataCallBack = new FRealDataCallBack();
 			fileName = UUID.randomUUID().toString().substring(0, 5);
-			sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
+			sdk_playBack.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid_back.intValue());
 			// 还要调用该接口才能开始回放
-			sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
+			sdk_playBack.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 			System.out.println("开始回放");
+		}
+
+		File f = new File(Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+				+ "files\\");
+		if (!f.exists()) {
+			f.mkdirs();
+		}
+
+		try {
+			Thread.sleep(1000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (!new File(f.getAbsolutePath() + "\\" + fileName + ".h264").exists()) {
+			return "";
 		}
 
 		return fileName;
@@ -350,9 +429,9 @@ public class videoController {
 	@ResponseBody
 	@RequestMapping("/stopPlayBack")
 	public String stopPlayBack() {
-		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
-		sdk.NET_DVR_StopPlayBack(m_lPlayHandle);
-		m_lPlayHandle.setValue(-1);
+		sdk_playBack.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
+		sdk_playBack.NET_DVR_StopPlayBack(m_lPlayHandle);
+		// m_lPlayHandle.setValue(-1);
 		System.out.println("关闭回放。。。。");
 
 		return "success";
