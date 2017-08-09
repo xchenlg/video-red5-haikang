@@ -52,9 +52,10 @@ public class videoController {
 	private static HCNetSDK sdk_turn;
 	private static HCNetSDK sdk_playBack;
 	private String fileName;
-	private OutputStream out = null;
 	private static NativeLong m_lPlayHandle = null;// 播放句柄
-	public NativeLong lChannel;
+	public NativeLong lChannel_turn;
+	public NativeLong lChannel_playBack;
+	private NativeLong lPreviewHandle_turn;
 
 	// 从 application.properties 中读取配置，如取不到默认值为Hello Shanhy
 	@Value("${application.hello:Hello Angel}")
@@ -71,6 +72,10 @@ public class videoController {
 	private String sdk_user;
 	@Value("${sdk_password}")
 	private String sdk_password;
+	@Value("${sdk_turn_ip}")
+	private String sdk_turn_ip;
+	@Value("${sdk_turn_port}")
+	private String sdk_turn_port;
 
 	@RequestMapping("/videoJsp")
 	public String videoJsp(Map<String, Object> map) {
@@ -172,18 +177,20 @@ public class videoController {
 
 		// 用户参数
 		HCNetSDK.NET_DVR_CLIENTINFO m_strClientInfo = new HCNetSDK.NET_DVR_CLIENTINFO();
-		m_strClientInfo.lChannel = lChannel;
+		m_strClientInfo.lChannel = lChannel_turn;
 		// 预览句柄
-		NativeLong lPreviewHandle = sdk_turn.NET_DVR_RealPlay_V30(uid_turn, m_strClientInfo, null, null, true);
+		if(lPreviewHandle_turn ==null){
+			lPreviewHandle_turn = sdk_turn.NET_DVR_RealPlay_V30(uid_turn, m_strClientInfo, null, null, true);
+		}
 
-		sdk_turn.NET_DVR_PTZControl(lPreviewHandle, operate, 0);
+		sdk_turn.NET_DVR_PTZControl(lPreviewHandle_turn, operate, 0);
 		// 控制操作，左方向停止
 		try {
 			Thread.sleep(80);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
-		sdk_turn.NET_DVR_PTZControl(lPreviewHandle, operate, 1);
+		sdk_turn.NET_DVR_PTZControl(lPreviewHandle_turn, operate, 1);
 	}
 
 	private HCNetSDK initSdk(String type) {
@@ -205,9 +212,9 @@ public class videoController {
 			bRet = setUid_back(sdk, devinfo);
 
 		if (bRet == true) {
-			lChannel = new NativeLong(devinfo.byStartChan + 32);
+			lChannel_playBack = new NativeLong(devinfo.byStartChan + 32);
 		} else {
-			lChannel = new NativeLong(devinfo.byStartChan);
+			lChannel_turn = new NativeLong(devinfo.byStartChan);
 		}
 
 		return sdk;
@@ -221,7 +228,7 @@ public class videoController {
 			uid_turn = new NativeLong(-1);
 		}
 
-		uid_turn = sdk.NET_DVR_Login_V30(sdk_ip, Short.valueOf(sdk_port), sdk_user, sdk_password, devinfo);// 返回一个用户编号，同时将设备信息写入devinfo
+		uid_turn = sdk.NET_DVR_Login_V30(sdk_turn_ip, Short.valueOf(sdk_turn_port), sdk_user, sdk_password, devinfo);// 返回一个用户编号，同时将设备信息写入devinfo
 		int Iuid = uid_turn.intValue();
 		if (Iuid < 0) {
 			System.out.println("设备注册失败");
@@ -394,7 +401,13 @@ public class videoController {
 		struStopTime.dwMinute = new Integer(dt_e.getMinuteOfHour());
 		struStopTime.dwSecond = new Integer(dt_e.getSecondOfMinute());
 
-		m_lPlayHandle = sdk_playBack.NET_DVR_PlayBackByTime(uid_back, lChannel, struStartTime, struStopTime, null);
+		m_lPlayHandle = sdk_playBack.NET_DVR_PlayBackByTime(uid_back, lChannel_playBack, struStartTime, struStopTime, null);
+
+		File f = new File(Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+				+ "files\\");
+		if (!f.exists()) {
+			f.mkdirs();
+		}
 
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
@@ -406,12 +419,6 @@ public class videoController {
 			// 还要调用该接口才能开始回放
 			sdk_playBack.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 			System.out.println("开始回放");
-		}
-
-		File f = new File(Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
-				+ "files\\");
-		if (!f.exists()) {
-			f.mkdirs();
 		}
 
 		try {
@@ -441,13 +448,8 @@ public class videoController {
 		@Override
 		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
 			System.out.println("回调函数。。。。。。。");
+			OutputStream out = null;
 			try {
-				File f = new File(
-						Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
-								+ "files\\");
-				if (!f.exists()) {
-					f.mkdirs();
-				}
 				out = new FileOutputStream(new File(
 						Device_Play.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 								+ "files\\" + fileName + ".h264"),
