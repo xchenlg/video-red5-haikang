@@ -21,6 +21,8 @@ public interface PersonRepository extends CrudRepository<Person, Long> {
     List<Person> findByAddress(String address);
 
     List<Person> findByNameAndAddress(String name, String address);
+    
+    List<Person> findByNameAndPassword(String name, String password);
 
     @Query("select p from Person p where p.department.id = :id")
     List<Person> findByDepartmentId(@Param("id") Long id);

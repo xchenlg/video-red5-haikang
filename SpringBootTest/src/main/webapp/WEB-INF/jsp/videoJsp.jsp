@@ -11,6 +11,19 @@
 <script type="text/javascript">
 	$(function() {
 		showVideo();
+		$.ajax({
+			type : 'POST',
+			url : '../video/getChanels',
+			dataType : 'json',
+			success : function(data) {
+				var str = "";
+				for(var i=0;i<data.length;i++){
+					str += '<button onclick="turnLeftSet(\''+data[i]+'\')" >左转'+data[i]+'</button>';
+					str += '<button onclick="turnRight(\''+data[i]+'\')" >右转'+data[i]+'</button>';
+				}
+				$("#chanel").append(str);
+			}
+		});
 	});
 	function showVideo() {
 		jwplayer("jwplayer_flv").setup({
@@ -48,20 +61,20 @@
 		});
 	}
 
-	function stopPlayBack() {
+	function turnLeftSet(chanel) {
 		$.ajax({
 			type : 'POST',
-			url : '../video/stopPlayBack',
+			url : '../video/turnLeft?chanel='+chanel,
 			dataType : 'json',
 			async : false,
 			success : function(data) {
 			}
 		});
 	}
-	function turnLeftUp() {
+	function turnRight(chanel) {
 		$.ajax({
 			type : 'POST',
-			url : '../video/turnLeftUp',
+			url : '../video/turnRight?chanel='+chanel,
 			dataType : 'json',
 			async : false,
 			success : function(data) {
@@ -71,11 +84,10 @@
 </script>
 </head>
 <body>
-	helloJsp  onkeypress="turnLeftSet()" onkeyup="turnLeftUp()" 
-	<hr>
+	<div id="chanel">
+	</div>
 	<a href="###" onclick="play()">播放</a>
-	<a href="###" onclick="stop()">关闭</a> 
-	<button onclick="stopPlayBack()" >关闭历史</button>
+	<a href="###" onclick="stop()">关闭</a>
 	<div id="jwplayer_flv"
 		style="width: 700px; height: 300px; position: relative;">
 		<object name="playerzmblbkjP" width="100%" height="100%"

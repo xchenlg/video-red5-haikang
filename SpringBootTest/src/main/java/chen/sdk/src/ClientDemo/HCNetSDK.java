@@ -3060,7 +3060,7 @@ public static class RECV_ALARM extends Structure{
 //播放库函数声明,PlayCtrl.dll
 interface PlayCtrl extends StdCallLibrary
 {
-    PlayCtrl INSTANCE = (PlayCtrl) Native.loadLibrary("D:\\chenlg\\shexiangtou\\CH-HCNetSDK(Windows32)V5.2.7.5_build20170217\\库文件\\PlayCtrl",
+    PlayCtrl INSTANCE = (PlayCtrl) Native.loadLibrary("PlayCtrl",
             PlayCtrl.class);
 
     public static final int STREAME_REALTIME = 0;
