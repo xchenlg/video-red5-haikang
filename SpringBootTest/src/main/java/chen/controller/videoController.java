@@ -389,10 +389,6 @@ public class videoController {
 			initSdk();
 		}
 
-		// if (s.getlPreviewHandle_back() != null) {
-		// stopPlayBack("");
-		// }
-
 		NET_DVR_TIME struStartTime = new NET_DVR_TIME();
 		NET_DVR_TIME struStopTime = new NET_DVR_TIME();
 
@@ -416,9 +412,6 @@ public class videoController {
 		HCNetSDK sdk = s.getSdk();
 		NativeLong uid = s.getUid();
 
-		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
-				struStopTime, null);
-
 		File f = new File(
 				videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 						+ "files\\");
@@ -426,61 +419,60 @@ public class videoController {
 			f.mkdirs();
 		}
 
+		if (user == null) {
+			return "nouser";
+		}
+
+		if (userBackMap.get(user) == null) {
+			if (userBackMap.size() == 0 || userBackMap.size() == 3) {
+				return playBack1(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			} else if (userBackMap.size() == 1) {
+				return playBack2(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			} else if (userBackMap.size() == 2) {
+				return playBack3(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			}
+		} else if (userBackMap.get(user) == 1) {
+			return playBack1(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+		} else if (userBackMap.get(user) == 2) {
+			return playBack2(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+		} else if (userBackMap.get(user) == 3) {
+			return playBack3(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+		}
+		
+		return "";
+
+	}
+
+	/**
+	 * 
+	 * 第一回调函数
+	 * @param chanel
+	 * @param struStartTime
+	 * @param struStopTime
+	 * @param sdk
+	 * @param uid
+	 * @param f
+	 * @return
+	 */
+	private String playBack1(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f,String user) {
+		fileName = UUID.randomUUID().toString().substring(0, 5);
+		if (s.getlPreviewHandle_back() != null) {
+			stopPlayBack(1);
+		}
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
+				struStartTime, struStopTime, null);
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
 			return "";
-		} else {
-			s.setlPreviewHandle_back(m_lPlayHandle);
-			fileName = UUID.randomUUID().toString().substring(0, 5);
-			fileName1 = UUID.randomUUID().toString().substring(0, 5);
-			fileName2 = UUID.randomUUID().toString().substring(0, 5);
-
-			if (user == null) {
-				return "nouser";
-			}
-
-			if (userBackMap.get(user) == null) {
-				if (userBackMap.size() == 0 || userBackMap.size() == 3) {
-					if (fPlayDataCallBack == null) {
-						fPlayDataCallBack = new FRealDataCallBack();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
-					userBackMap.put(user, 1);
-				} else if (userBackMap.size() == 1) {
-					if (fPlayDataCallBack1 == null) {
-						fPlayDataCallBack1 = new FRealDataCallBack1();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack1, uid.intValue());
-					userBackMap.put(user, 2);
-				} else if (userBackMap.size() == 2) {
-					if (fPlayDataCallBack2 == null) {
-						fPlayDataCallBack2 = new FRealDataCallBack2();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack2, uid.intValue());
-					userBackMap.put(user, 3);
-				}
-			} else if (userBackMap.get(user) == 1) {
-				if (fPlayDataCallBack == null) {
-					fPlayDataCallBack = new FRealDataCallBack();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
-			} else if (userBackMap.get(user) == 2) {
-				if (fPlayDataCallBack1 == null) {
-					fPlayDataCallBack1 = new FRealDataCallBack1();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack1, uid.intValue());
-			} else if (userBackMap.get(user) == 3) {
-				if (fPlayDataCallBack2 == null) {
-					fPlayDataCallBack2 = new FRealDataCallBack2();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack2, uid.intValue());
-			}
-
-			// 还要调用该接口才能开始回放
-			sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
-			System.out.println("开始回放");
 		}
-
+		if (fPlayDataCallBack == null) {
+			fPlayDataCallBack = new FRealDataCallBack();
+		}
+		sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
+		s.setlPreviewHandle_back(m_lPlayHandle);
+		// 还要调用该接口才能开始回放
+		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 		try {
 			Thread.sleep(200);
 		} catch (InterruptedException e) {
@@ -489,10 +481,98 @@ public class videoController {
 		if (!new File(f.getAbsolutePath() + "\\" + fileName + ".h264").exists()) {
 			return "";
 		}
-
+		userBackMap.put(user, 1);
 		countBack.addAndGet(1);
 
 		return fileName;
+	}
+
+	/**
+	 * 
+	 * 第二回调函数
+	 * @param chanel
+	 * @param struStartTime
+	 * @param struStopTime
+	 * @param sdk
+	 * @param uid
+	 * @param f
+	 * @return
+	 */
+	private String playBack2(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f,String user) {
+		fileName1 = UUID.randomUUID().toString().substring(0, 5);
+		if (s.getlPreviewHandle_back1() != null) {
+			stopPlayBack(2);
+		}
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
+				struStartTime, struStopTime, null);
+		if (m_lPlayHandle.intValue() == -1) {
+			logger.info("按时间回放失败!");
+			return "";
+		}
+		if (fPlayDataCallBack1 == null) {
+			fPlayDataCallBack1 = new FRealDataCallBack1();
+		}
+		sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack1, uid.intValue());
+		s.setlPreviewHandle_back1(m_lPlayHandle);
+		// 还要调用该接口才能开始回放
+		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
+		try {
+			Thread.sleep(200);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (!new File(f.getAbsolutePath() + "\\" + fileName1 + ".h264").exists()) {
+			return "";
+		}
+		userBackMap.put(user, 2);
+		countBack.addAndGet(1);
+
+		return fileName1;
+	}
+
+	/**
+	 * 
+	 * 第三回调函数
+	 * @param chanel
+	 * @param struStartTime
+	 * @param struStopTime
+	 * @param sdk
+	 * @param uid
+	 * @param f
+	 * @return
+	 */
+	private String playBack3(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f,String user) {
+		fileName2 = UUID.randomUUID().toString().substring(0, 5);
+		if (s.getlPreviewHandle_back2() != null) {
+			stopPlayBack(3);
+		}
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
+				struStartTime, struStopTime, null);
+		if (m_lPlayHandle.intValue() == -1) {
+			logger.info("按时间回放失败!");
+			return "";
+		}
+		if (fPlayDataCallBack2 == null) {
+			fPlayDataCallBack2 = new FRealDataCallBack2();
+		}
+		sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack2, uid.intValue());
+		s.setlPreviewHandle_back2(m_lPlayHandle);
+		// 还要调用该接口才能开始回放
+		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
+		try {
+			Thread.sleep(200);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (!new File(f.getAbsolutePath() + "\\" + fileName2 + ".h264").exists()) {
+			return "";
+		}
+		userBackMap.put(user, 3);
+		countBack.addAndGet(1);
+
+		return fileName2;
 	}
 
 	@ResponseBody
@@ -500,18 +580,41 @@ public class videoController {
 	public String stopPlayBack(String fileName) {
 
 		// if (file_handler.get(fileName) != null) {
-//		HCNetSDK sdk = s.getSdk();
-//		NativeLong handle = s.getlPreviewHandle_back();
-//		sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
-//		sdk.NET_DVR_StopPlayBack(handle);
-//		s.setlPreviewHandle_back(null);
-//		countBack.decrementAndGet();
-		System.out.println("关闭回放。。。。");
+		// HCNetSDK sdk = s.getSdk();
+		// NativeLong handle = s.getlPreviewHandle_back();
+		// sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO,
+		// 0, null);
+		// sdk.NET_DVR_StopPlayBack(handle);
+		// s.setlPreviewHandle_back(null);
+		// countBack.decrementAndGet();
+		// System.out.println("关闭回放。。。。");
 		// } else if (filePortMap.containsKey(fileName)) {
 		// connectCloseBack(fileName, filePortMap.get(fileName));
 		// }
 
 		return "success";
+	}
+
+	private void stopPlayBack(Integer backNum) {
+
+		HCNetSDK sdk = s.getSdk();
+		NativeLong handle = null;
+		if (backNum == 1) {
+			handle = s.getlPreviewHandle_back();
+			s.setlPreviewHandle_back(null);
+		} else if (backNum == 2) {
+			handle = s.getlPreviewHandle_back1();
+			s.setlPreviewHandle_back1(null);
+		} else if (backNum == 3) {
+			handle = s.getlPreviewHandle_back2();
+			s.setlPreviewHandle_back2(null);
+		}
+		sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
+		sdk.NET_DVR_StopPlayBack(handle);
+		countBack.decrementAndGet();
+
+		System.out.println("关闭回放。。。。");
+
 	}
 
 	class FRealDataCallBack implements HCNetSDK.FPlayDataCallBack {
