@@ -18,6 +18,16 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
@@ -38,6 +48,7 @@ import chen.sdk.src.ClientDemo.HCNetSDK;
 import chen.sdk.src.ClientDemo.HCNetSDK.NET_DVR_DEVICEINFO_V30;
 import chen.sdk.src.ClientDemo.HCNetSDK.NET_DVR_TIME;
 import net.sf.ehcache.util.concurrent.ConcurrentHashMap;
+import net.sf.json.JSONArray;
 
 /**
  * 测试
@@ -54,14 +65,10 @@ public class videoController {
 	// 通道对应进程
 	// private Map<String, NativeLong> chanel_process = new HashMap<>();
 	private Set<String> chanel_live = new HashSet<>();
-	// 回放每个用户对应的回调函数
-	private Map<String, Integer> userBackMap = new ConcurrentHashMap<>();
-	private FRealDataCallBack fPlayDataCallBack;
-	private FRealDataCallBack1 fPlayDataCallBack1;
-	private FRealDataCallBack2 fPlayDataCallBack2;
-	private String fileName;
-	private String fileName1;
-	private String fileName2;
+	// 回放每个端口对应的数量
+	private Map<String, Integer> portCountMap = new ConcurrentHashMap<>();
+	// 每个文件对应的端口
+	private Map<String, String> filePortMap = new ConcurrentHashMap<>();
 
 	public static AtomicInteger countBack = new AtomicInteger();
 	private Sdk s;
@@ -80,6 +87,8 @@ public class videoController {
 	private String sdk_user;
 	@Value("${sdk_password}")
 	private String sdk_password;
+	@Value("${playbackport}")
+	private String playbackport;
 
 	@RequestMapping("/videoJsp")
 	public String videoJsp() {
@@ -370,9 +379,53 @@ public class videoController {
 		}
 	}
 
+	public String connectBack(String sDate, String eDate, String chanel, String port) {
+		// 创建HttpClientBuilder
+		HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
+		// HttpClient
+		CloseableHttpClient closeableHttpClient = httpClientBuilder.build();
+
+		HttpPost httpPost = new HttpPost("http://localhost:" + port + "/video/playBackByTime");
+		RequestConfig requestConfig = RequestConfig.custom().setSocketTimeout(20000).setConnectTimeout(20000).build();
+		httpPost.setConfig(requestConfig);
+		// 创建参数队列
+		List<NameValuePair> formparams = new ArrayList<NameValuePair>();
+		formparams.add(new BasicNameValuePair("sDate", sDate));
+		formparams.add(new BasicNameValuePair("eDate", eDate));
+		formparams.add(new BasicNameValuePair("chanel", chanel));
+
+		UrlEncodedFormEntity entity;
+		try {
+			entity = new UrlEncodedFormEntity(formparams, "UTF-8");
+			httpPost.setEntity(entity);
+
+			HttpResponse httpResponse;
+			// post请求
+			httpResponse = closeableHttpClient.execute(httpPost);
+
+			// getEntity()
+			HttpEntity httpEntity = httpResponse.getEntity();
+			if (httpEntity != null) {
+				// 打印响应内容
+				String fileName = EntityUtils.toString(httpEntity, "UTF-8");
+				if (!"".equals(fileName) && !"false".equals(fileName)) {
+					filePortMap.put(fileName, port);
+					portCountMap.put(port, 1);
+				}
+				return fileName;
+			}
+			// 释放资源
+			closeableHttpClient.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		return "";
+	}
+
 	@ResponseBody
 	@RequestMapping("/playBackByTime")
-	public String playBackByTime(String sDate, String eDate, String chanel, String user) {
+	public String playBackByTime(String sDate, String eDate, String chanel) {
 
 		// if (countBack.get() >= 1) {
 		// String[] ports = playbackport.split(",");
@@ -389,9 +442,9 @@ public class videoController {
 			initSdk();
 		}
 
-		// if (s.getlPreviewHandle_back() != null) {
-		// stopPlayBack("");
-		// }
+		if (s.getlPreviewHandle_back() != null) {
+			stopPlayBack("");
+		}
 
 		NET_DVR_TIME struStartTime = new NET_DVR_TIME();
 		NET_DVR_TIME struStopTime = new NET_DVR_TIME();
@@ -426,56 +479,17 @@ public class videoController {
 			f.mkdirs();
 		}
 
+		String fileName = "";
+
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
 			return "";
 		} else {
 			s.setlPreviewHandle_back(m_lPlayHandle);
 			fileName = UUID.randomUUID().toString().substring(0, 5);
-			fileName1 = UUID.randomUUID().toString().substring(0, 5);
-			fileName2 = UUID.randomUUID().toString().substring(0, 5);
-
-			if (user == null) {
-				return "nouser";
-			}
-
-			if (userBackMap.get(user) == null) {
-				if (userBackMap.size() == 0 || userBackMap.size() == 3) {
-					if (fPlayDataCallBack == null) {
-						fPlayDataCallBack = new FRealDataCallBack();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
-					userBackMap.put(user, 1);
-				} else if (userBackMap.size() == 1) {
-					if (fPlayDataCallBack1 == null) {
-						fPlayDataCallBack1 = new FRealDataCallBack1();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack1, uid.intValue());
-					userBackMap.put(user, 2);
-				} else if (userBackMap.size() == 2) {
-					if (fPlayDataCallBack2 == null) {
-						fPlayDataCallBack2 = new FRealDataCallBack2();
-					}
-					sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack2, uid.intValue());
-					userBackMap.put(user, 3);
-				}
-			} else if (userBackMap.get(user) == 1) {
-				if (fPlayDataCallBack == null) {
-					fPlayDataCallBack = new FRealDataCallBack();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
-			} else if (userBackMap.get(user) == 2) {
-				if (fPlayDataCallBack1 == null) {
-					fPlayDataCallBack1 = new FRealDataCallBack1();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack1, uid.intValue());
-			} else if (userBackMap.get(user) == 3) {
-				if (fPlayDataCallBack2 == null) {
-					fPlayDataCallBack2 = new FRealDataCallBack2();
-				}
-				sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack2, uid.intValue());
-			}
-
+			file_handler.put(fileName, m_lPlayHandle);
+			FRealDataCallBack fPlayDataCallBack = new FRealDataCallBack(fileName);
+			sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack, uid.intValue());
 			// 还要调用该接口才能开始回放
 			sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 			System.out.println("开始回放");
@@ -500,12 +514,12 @@ public class videoController {
 	public String stopPlayBack(String fileName) {
 
 		// if (file_handler.get(fileName) != null) {
-//		HCNetSDK sdk = s.getSdk();
-//		NativeLong handle = s.getlPreviewHandle_back();
-//		sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
-//		sdk.NET_DVR_StopPlayBack(handle);
-//		s.setlPreviewHandle_back(null);
-//		countBack.decrementAndGet();
+		HCNetSDK sdk = s.getSdk();
+		NativeLong handle = s.getlPreviewHandle_back();
+		sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
+		sdk.NET_DVR_StopPlayBack(handle);
+		s.setlPreviewHandle_back(null);
+		countBack.decrementAndGet();
 		System.out.println("关闭回放。。。。");
 		// } else if (filePortMap.containsKey(fileName)) {
 		// connectCloseBack(fileName, filePortMap.get(fileName));
@@ -514,7 +528,45 @@ public class videoController {
 		return "success";
 	}
 
+	public String connectCloseBack(String fileName, String port) {
+		// 创建HttpClientBuilder
+		HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
+		// HttpClient
+		CloseableHttpClient closeableHttpClient = httpClientBuilder.build();
+
+		HttpPost httpPost = new HttpPost("http://localhost:" + port + "/video/stopPlayBack");
+		RequestConfig requestConfig = RequestConfig.custom().setSocketTimeout(20000).setConnectTimeout(20000).build();
+		httpPost.setConfig(requestConfig);
+		// 创建参数队列
+		List<NameValuePair> formparams = new ArrayList<NameValuePair>();
+		formparams.add(new BasicNameValuePair("fileName", fileName));
+
+		UrlEncodedFormEntity entity;
+		try {
+			entity = new UrlEncodedFormEntity(formparams, "UTF-8");
+			httpPost.setEntity(entity);
+
+			// post请求
+			closeableHttpClient.execute(httpPost);
+			// getEntity()
+			// 释放资源
+			closeableHttpClient.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		portCountMap.remove(port);
+		filePortMap.remove(fileName);
+		return "";
+	}
+
 	class FRealDataCallBack implements HCNetSDK.FPlayDataCallBack {
+
+		private String fileName;
+
+		public FRealDataCallBack(String fileName) {
+			this.fileName = fileName;
+		}
 
 		@Override
 		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
@@ -526,72 +578,6 @@ public class videoController {
 				out = new FileOutputStream(new File(
 						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 								+ "files\\" + fileName + ".h264"),
-						true);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			}
-			byte[] bytes = pBuffer.getPointer().getByteArray(0, dwBufSize);
-			try {
-				out.write(bytes, 0, bytes.length);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} finally {
-				try {
-					out.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-
-			System.gc();
-		}
-	}
-
-	class FRealDataCallBack1 implements HCNetSDK.FPlayDataCallBack {
-
-		@Override
-		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
-
-			System.out.println("回调函数1操作文件=========:" + fileName1);
-			OutputStream out = null;
-			try {
-
-				out = new FileOutputStream(new File(
-						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
-								+ "files\\" + fileName1 + ".h264"),
-						true);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			}
-			byte[] bytes = pBuffer.getPointer().getByteArray(0, dwBufSize);
-			try {
-				out.write(bytes, 0, bytes.length);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} finally {
-				try {
-					out.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-
-			System.gc();
-		}
-	}
-
-	class FRealDataCallBack2 implements HCNetSDK.FPlayDataCallBack {
-
-		@Override
-		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
-
-			System.out.println("回调函数2操作文件=========:" + fileName2);
-			OutputStream out = null;
-			try {
-
-				out = new FileOutputStream(new File(
-						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
-								+ "files\\" + fileName2 + ".h264"),
 						true);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
