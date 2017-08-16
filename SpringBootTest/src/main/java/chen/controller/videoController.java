@@ -456,7 +456,6 @@ public class videoController {
 	 */
 	private String playBack1(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
 			NativeLong uid, File f,String user) {
-		fileName = UUID.randomUUID().toString().substring(0, 5);
 		if (s.getlPreviewHandle_back() != null) {
 			stopPlayBack(1);
 		}
@@ -466,6 +465,7 @@ public class videoController {
 			logger.info("按时间回放失败!");
 			return "";
 		}
+		fileName = UUID.randomUUID().toString().substring(0, 5);
 		if (fPlayDataCallBack == null) {
 			fPlayDataCallBack = new FRealDataCallBack();
 		}
@@ -474,7 +474,7 @@ public class videoController {
 		// 还要调用该接口才能开始回放
 		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 		try {
-			Thread.sleep(200);
+			Thread.sleep(1000);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -500,7 +500,6 @@ public class videoController {
 	 */
 	private String playBack2(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
 			NativeLong uid, File f,String user) {
-		fileName1 = UUID.randomUUID().toString().substring(0, 5);
 		if (s.getlPreviewHandle_back1() != null) {
 			stopPlayBack(2);
 		}
@@ -510,6 +509,7 @@ public class videoController {
 			logger.info("按时间回放失败!");
 			return "";
 		}
+		fileName1 = UUID.randomUUID().toString().substring(0, 5);
 		if (fPlayDataCallBack1 == null) {
 			fPlayDataCallBack1 = new FRealDataCallBack1();
 		}
@@ -518,7 +518,7 @@ public class videoController {
 		// 还要调用该接口才能开始回放
 		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 		try {
-			Thread.sleep(200);
+			Thread.sleep(1000);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -544,7 +544,6 @@ public class videoController {
 	 */
 	private String playBack3(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
 			NativeLong uid, File f,String user) {
-		fileName2 = UUID.randomUUID().toString().substring(0, 5);
 		if (s.getlPreviewHandle_back2() != null) {
 			stopPlayBack(3);
 		}
@@ -554,6 +553,7 @@ public class videoController {
 			logger.info("按时间回放失败!");
 			return "";
 		}
+		fileName2 = UUID.randomUUID().toString().substring(0, 5);
 		if (fPlayDataCallBack2 == null) {
 			fPlayDataCallBack2 = new FRealDataCallBack2();
 		}
@@ -562,7 +562,7 @@ public class videoController {
 		// 还要调用该接口才能开始回放
 		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
 		try {
-			Thread.sleep(200);
+			Thread.sleep(1000);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -613,7 +613,7 @@ public class videoController {
 		sdk.NET_DVR_StopPlayBack(handle);
 		countBack.decrementAndGet();
 
-		System.out.println("关闭回放。。。。");
+		System.out.println("关闭回放....");
 
 	}
 
