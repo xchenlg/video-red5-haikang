@@ -4,14 +4,17 @@
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
 		<encoder>
 			<pattern>%d %p (%file:%line\)- %m%n</pattern>
-			<charset>UTF-8</charset>
+			<!-- <charset>UTF-8</charset> -->
 		</encoder>
 	</appender>
 	<appender name="baselog"
 		class="ch.qos.logback.core.rolling.RollingFileAppender">
-		<File>log/base.log</File>
+		<File>logs/info.log</File>
+		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+			<level>info</level>
+		</filter>
 		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-			<fileNamePattern>log/base.log.%d.%i</fileNamePattern>
+			<fileNamePattern>log/info.%d.%i.log</fileNamePattern>
 			<timeBasedFileNamingAndTriggeringPolicy
 				class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
 				<!-- or whenever the file size reaches 64 MB -->
@@ -25,10 +28,37 @@
 			<charset>UTF-8</charset> <!-- 此处设置字符集 -->
 		</encoder>
 	</appender>
-	<root level="info">
+	<appender name="errorlog"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<File>logs/error.log</File>
+		<!-- 过滤掉 不是error级别的日志 -->
+		<filter class="ch.qos.logback.classic.filter.LevelFilter">
+			<level>error</level>
+			<onMatch>ACCEPT</onMatch>
+			<onMismatch>DENY</onMismatch>
+		</filter>
+		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+			<fileNamePattern>log/error.%d.%i.log</fileNamePattern>
+			<timeBasedFileNamingAndTriggeringPolicy
+				class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+				<!-- or whenever the file size reaches 64 MB -->
+				<maxFileSize>64 MB</maxFileSize>
+			</timeBasedFileNamingAndTriggeringPolicy>
+		</rollingPolicy>
+		<encoder>
+			<pattern>
+				%d %p (%file:%line\)- %m%n
+			</pattern>
+			<charset>UTF-8</charset> <!-- 此处设置字符集 -->
+		</encoder>
+	</appender>
+	<root level="INFO">
 		<appender-ref ref="STDOUT" />
 	</root>
-	<logger name="com.example" level="DEBUG">
+	<logger name="chen" level="DEBUG"><!-- 指定某包下的类的日志级别及输出 -->
 		<appender-ref ref="baselog" />
+	</logger>
+	<logger name="chen" level="INFO"><!-- 指定某包下的类的日志级别及输出 -->
+		<appender-ref ref="errorlog" />
 	</logger>
 </configuration>  
