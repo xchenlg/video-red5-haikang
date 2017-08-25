@@ -11,18 +11,22 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.servlet.http.HttpServletRequest;
+
+import org.apache.commons.lang.StringUtils;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,9 +38,18 @@ import com.sun.jna.Pointer;
 import com.sun.jna.ptr.ByteByReference;
 import com.sun.jna.ptr.IntByReference;
 
+import chen.domain.EasyUIDataGrid;
+import chen.domain.JsonResult;
+import chen.domain.PChanel;
+import chen.domain.PageHelper;
+import chen.domain.TChanel;
+import chen.domain.TSdk;
+import chen.domain.Tree;
 import chen.sdk.src.ClientDemo.HCNetSDK;
 import chen.sdk.src.ClientDemo.HCNetSDK.NET_DVR_DEVICEINFO_V30;
 import chen.sdk.src.ClientDemo.HCNetSDK.NET_DVR_TIME;
+import chen.service.ChanelService;
+import chen.service.SdkService;
 import net.sf.ehcache.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -45,45 +58,241 @@ import net.sf.ehcache.util.concurrent.ConcurrentHashMap;
  */
 @Controller
 @RequestMapping("/video")
-public class videoController {
+public class VideoController {
 
-	protected static Logger logger = LoggerFactory.getLogger(PersonController.class);
+	protected static Logger logger = LoggerFactory.getLogger(VideoController.class);
 
+	@Autowired
+	private SdkService sdkService;
+	@Autowired
+	private ChanelService chanelService;
+
+	private Map<String, Sdk> sdks = new ConcurrentHashMap<>();
 	// 文件操作句柄
-	private Map<String, NativeLong> file_handler = new HashMap<>();
-	// 通道对应进程
-	// private Map<String, NativeLong> chanel_process = new HashMap<>();
-	private Set<String> chanel_live = new HashSet<>();
+//	private Map<String, NativeLong> file_handler = new HashMap<>();
+	// 通道对应lPreviewHandle
+	private Map<String, NativeLong> chanel_lPreviewHandle = new HashMap<>();
+
+	private BlockingQueue<Process> liveBlock = new LinkedBlockingQueue<>();
+	// private Set<String> chanel_live = new HashSet<>();
 	// 回放每个用户对应的回调函数
 	private Map<String, Integer> userBackMap = new ConcurrentHashMap<>();
 	private FRealDataCallBack fPlayDataCallBack;
 	private FRealDataCallBack1 fPlayDataCallBack1;
 	private FRealDataCallBack2 fPlayDataCallBack2;
+	private FRealDataCallBack3 fPlayDataCallBack3;
+	private FRealDataCallBack4 fPlayDataCallBack4;
 	private String fileName;
 	private String fileName1;
 	private String fileName2;
+	private String fileName3;
+	private String fileName4;
 
 	public static AtomicInteger countBack = new AtomicInteger();
-	private Sdk s;
+	// 直播的名称后缀
+	public static AtomicInteger live = new AtomicInteger(0);
 
 	public static Date date = new Date();
 
-	@Value("${rtspVideo_url}")
-	private String rtspVideo_url;
+	// @Value("${rtspVideo_url}")
+	// private String rtspVideo_url;
 	@Value("${rtmpVideo_url}")
 	private String rtmpVideo_url;
-	@Value("${sdk_ip}")
-	private String sdk_ip;
-	@Value("${sdk_port}")
-	private String sdk_port;
-	@Value("${sdk_user}")
-	private String sdk_user;
-	@Value("${sdk_password}")
-	private String sdk_password;
+	@Value("${queue_size}")
+	private String queue_size;
 
 	@RequestMapping("/videoJsp")
 	public String videoJsp() {
 		return "videoJsp";
+	}
+
+	@RequestMapping("/sdkJsp")
+	public String sdkJsp() {
+		return "sdkJsp";
+	}
+
+	@RequestMapping("/chanelJsp")
+	public String chanelJsp() {
+		return "chanelJsp";
+	}
+
+	@RequestMapping("/dataGrid")
+	@ResponseBody
+	public EasyUIDataGrid dataGrid(PageHelper ph) {
+		return sdkService.dataGrid(ph);
+	}
+
+	@RequestMapping("/chaneldataGrid")
+	@ResponseBody
+	public EasyUIDataGrid chaneldataGrid(String id, PageHelper ph) {
+		if (StringUtils.isBlank(id)) {
+			return new EasyUIDataGrid();
+		}
+		return chanelService.dataGrid(Long.valueOf(id), ph);
+	}
+
+	@RequestMapping("/addPage")
+	public String addPage() {
+		return "add";
+	}
+
+	@RequestMapping("/addChanelPage")
+	public String addChanelPage(String sdkid, HttpServletRequest request) {
+
+		PChanel p = new PChanel();
+		p.setSdkId(Long.valueOf(sdkid));
+		request.setAttribute("chanel", p);
+
+		return "chanelAdd";
+	}
+
+	@RequestMapping("/editPage")
+	public String editPage(String id, HttpServletRequest request) {
+
+		request.setAttribute("sdk", sdkService.findById(id));
+		return "add";
+	}
+
+	@RequestMapping("/editChanelPage")
+	public String editChanelPage(String id, HttpServletRequest request) {
+
+		request.setAttribute("chanel", chanelService.findById(id));
+		return "chanelAdd";
+	}
+
+	@ResponseBody
+	@RequestMapping("/getSdkTree")
+	public List<Tree> getSdkTree(HttpServletRequest request) {
+		return sdkService.getSdkTree();
+	}
+
+	/**
+	 * 添加
+	 * 
+	 * @return
+	 */
+	@RequestMapping("/add")
+	@ResponseBody
+	public JsonResult add(TSdk sdk, String create_date) {
+		JsonResult j = new JsonResult();
+		try {
+			sdk.setUpdateDate(new Date());
+			if (sdk.getId() == null) {
+				sdk.setCreateDate(new Date());
+				Integer max = sdkService.findMaxOrder();
+				sdk.setSdkOrder(max == null ? 0 : max + 1);
+			} else {
+				DateTimeFormatter format = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS");
+				// 时间解析
+				DateTime dateTime = DateTime.parse(create_date, format);
+				sdk.setCreateDate(dateTime.toDate());
+			}
+			sdkService.add(sdk);
+			j.setSuccess(true);
+			j.setMsg("添加成功！");
+		} catch (Exception e) {
+			j.setMsg(e.getMessage());
+		}
+		return j;
+	}
+
+	/**
+	 * 删除
+	 * 
+	 * @param id
+	 * @return
+	 */
+	@RequestMapping("/delete")
+	@ResponseBody
+	public JsonResult delete(String id) {
+
+		JsonResult j = new JsonResult();
+		sdkService.delete(id);
+		j.setMsg("删除成功！");
+		j.setSuccess(true);
+		return j;
+	}
+
+	/**
+	 * 向上或者向下移动一位
+	 * 
+	 * @param request
+	 * @return
+	 */
+	@ResponseBody
+	@RequestMapping("/moveUpOrDown")
+	public JsonResult moveUpOrDown(String flag, String id) {
+
+		JsonResult result = new JsonResult();
+		sdkService.moveUpOrDown(id, flag);
+		result.setSuccess(true);
+
+		return result;
+	}
+
+	/**
+	 * 添加
+	 * 
+	 * @return
+	 */
+	@RequestMapping("/addChanel")
+	@ResponseBody
+	public JsonResult addChanel(TChanel sdk, String sdkId,String create_date) {
+		JsonResult j = new JsonResult();
+		try {
+			sdk.setUpdateDate(new Date());
+			sdk.setSdk(sdkService.findById(sdkId));
+			if (sdk.getId() == null) {
+				sdk.setCreateDate(new Date());
+				Integer max = chanelService.findMaxOrder(Long.valueOf(sdkId));
+				sdk.setChanelOrder(max == null ? 0 : max + 1);
+			} else {
+				DateTimeFormatter format = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS");
+				// 时间解析
+				DateTime dateTime = DateTime.parse(create_date, format);
+				sdk.setCreateDate(dateTime.toDate());
+			}
+			chanelService.add(sdk);
+			j.setSuccess(true);
+			j.setMsg("添加成功！");
+		} catch (Exception e) {
+			j.setMsg(e.getMessage());
+		}
+		return j;
+	}
+
+	/**
+	 * 删除
+	 * 
+	 * @param id
+	 * @return
+	 */
+	@RequestMapping("/deleteChanel")
+	@ResponseBody
+	public JsonResult deleteChanel(String id) {
+
+		JsonResult j = new JsonResult();
+		chanelService.delete(id);
+		j.setMsg("删除成功！");
+		j.setSuccess(true);
+		return j;
+	}
+
+	/**
+	 * 向上或者向下移动一位
+	 * 
+	 * @param request
+	 * @return
+	 */
+	@ResponseBody
+	@RequestMapping("/moveUpOrDownChanel")
+	public JsonResult moveUpOrDownChanel(String flag, String id, String sdkId) {
+
+		JsonResult result = new JsonResult();
+		chanelService.moveUpOrDown(id, flag, Long.valueOf(sdkId));
+		result.setSuccess(true);
+
+		return result;
 	}
 
 	/**
@@ -91,8 +300,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnLeftUp")
-	public void turnLeftUp(String chanel) {
-		turnOperate(HCNetSDK.UP_LEFT, new NativeLong(Long.valueOf(chanel)));
+	public void turnLeftUp(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.UP_LEFT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -100,8 +309,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnDownLeft")
-	public void turnDownLeft(String chanel) {
-		turnOperate(HCNetSDK.DOWN_LEFT, new NativeLong(Long.valueOf(chanel)));
+	public void turnDownLeft(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.DOWN_LEFT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -109,8 +318,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnUpRight")
-	public void turnUpRight(String chanel) {
-		turnOperate(HCNetSDK.UP_RIGHT, new NativeLong(Long.valueOf(chanel)));
+	public void turnUpRight(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.UP_RIGHT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -118,8 +327,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnDownRight")
-	public void turnDownRight(String chanel) {
-		turnOperate(HCNetSDK.DOWN_RIGHT, new NativeLong(Long.valueOf(chanel)));
+	public void turnDownRight(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.DOWN_RIGHT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -127,8 +336,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnUp")
-	public void turnUp(String chanel) {
-		turnOperate(HCNetSDK.TILT_UP, new NativeLong(Long.valueOf(chanel)));
+	public void turnUp(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.TILT_UP, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -136,8 +345,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnDown")
-	public void turnDown(String chanel) {
-		turnOperate(HCNetSDK.TILT_DOWN, new NativeLong(Long.valueOf(chanel)));
+	public void turnDown(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.TILT_DOWN, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -145,8 +354,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnLeft")
-	public void turnLeft(String chanel) {
-		turnOperate(HCNetSDK.PAN_LEFT, new NativeLong(Long.valueOf(chanel)));
+	public void turnLeft(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.PAN_LEFT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -154,8 +363,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnRight")
-	public void turnRight(String chanel) {
-		turnOperate(HCNetSDK.PAN_RIGHT, new NativeLong(Long.valueOf(chanel)));
+	public void turnRight(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.PAN_RIGHT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -163,8 +372,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnIn")
-	public void turnIn(String chanel) {
-		turnOperate(HCNetSDK.ZOOM_IN, new NativeLong(Long.valueOf(chanel)));
+	public void turnIn(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.ZOOM_IN, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -172,8 +381,8 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/turnOut")
-	public void turnOut(String chanel) {
-		turnOperate(HCNetSDK.ZOOM_OUT, new NativeLong(Long.valueOf(chanel)));
+	public void turnOut(String ip, String port, String chanel) {
+		turnOperate(HCNetSDK.ZOOM_OUT, ip, port, new NativeLong(Long.valueOf(chanel)));
 	}
 
 	/**
@@ -181,7 +390,13 @@ public class videoController {
 	 * 
 	 * @param operate
 	 */
-	private void turnOperate(int operate, NativeLong chanel) {
+	private synchronized void turnOperate(int operate, String ip, String port, NativeLong chanel) {
+
+		if (ip != null && !sdks.containsKey(ip)) {
+			initSdk(ip, port);
+		}
+
+		Sdk s = sdks.get(ip + port);
 
 		// 用户参数
 		HCNetSDK.NET_DVR_CLIENTINFO m_strClientInfo = new HCNetSDK.NET_DVR_CLIENTINFO();
@@ -191,9 +406,12 @@ public class videoController {
 		NativeLong uid = s.getUid();
 		HCNetSDK sdk = s.getSdk();
 		// 预览句柄
-		if (lPreviewHandle == null) {
+		if (chanel_lPreviewHandle.containsKey(ip + chanel)) {
+			s.setlPreviewHandle_turn(chanel_lPreviewHandle.get(ip + chanel));
+		} else {
 			lPreviewHandle = sdk.NET_DVR_RealPlay_V30(uid, m_strClientInfo, null, null, true);
 			s.setlPreviewHandle_turn(lPreviewHandle);
+			chanel_lPreviewHandle.put(ip + chanel + "", lPreviewHandle);
 		}
 
 		sdk.NET_DVR_PTZControl(lPreviewHandle, operate, 0);
@@ -211,19 +429,27 @@ public class videoController {
 	 */
 	@ResponseBody
 	@RequestMapping("/getChanels")
-	public List<NativeLong> getChanels() {
-		if (s == null || s.getUid() == null) {
-			initSdk();
+	public List<PChanel> getChanels(String id) {
+
+		if (StringUtils.isBlank(id)) {
+			return new ArrayList<>();
 		}
 
-		return s.getChanels();
+		return chanelService.findBySdk_IdOrderByChanelOrderAsc(id);
 	}
 
-	private void initSdk() {
+	@ResponseBody
+	@RequestMapping("/getSdks")
+	public List<TSdk> getSdks() {
 
-		s = new Sdk();
+		return sdkService.findAll();
+	}
+
+	private void initSdk(String ip, String port) {
+
+		Sdk s = new Sdk();
 		HCNetSDK sdk = (HCNetSDK) Native.loadLibrary(
-				videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+				VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 						+ "chen\\sdk\\HCNetSDK",
 				HCNetSDK.class);
 
@@ -232,12 +458,15 @@ public class videoController {
 		}
 
 		NET_DVR_DEVICEINFO_V30 m_strDeviceInfo = new NET_DVR_DEVICEINFO_V30();// 设备信息
-		// if (uid_turn.longValue() > -1) {
-		// 先注销
-		// sdk.NET_DVR_Logout_V30(uid_turn); uid_turn = new NativeLong(-1); }
 
-		NativeLong uid = sdk.NET_DVR_Login_V30(sdk_ip, Short.valueOf(sdk_port), sdk_user, sdk_password,
-				m_strDeviceInfo);// 返回一个用户编号，同时将设备信息写入devinfo
+		// 根据ip查询sdk配置情况
+		List<TSdk> tsdks = sdkService.findByIp(ip, port);
+		if (tsdks.size() <= 0) {
+			return;
+		}
+
+		NativeLong uid = sdk.NET_DVR_Login_V30(tsdks.get(0).getIp(), Short.valueOf(tsdks.get(0).getPort()),
+				tsdks.get(0).getUser(), tsdks.get(0).getPassword(), m_strDeviceInfo);// 返回一个用户编号，同时将设备信息写入devinfo
 		int Iuid = uid.intValue();
 		if (Iuid < 0) {
 			System.out.println("设备注册失败");
@@ -275,28 +504,34 @@ public class videoController {
 		}
 		s.setChanels(chanels);
 		s.setSdk(sdk);
+
+		sdks.put(ip + port, s);
 	}
 
 	@ResponseBody
 	@RequestMapping("/liveVideo")
-	public String liveVideo(String chanel) {
+	public String liveVideo(TSdk sdk, String chanel) {
 
-		if (chanel_live.contains(chanel)) {
-			return rtmpVideo_url + chanel;
+		if (liveBlock.size() >= Integer.valueOf(queue_size)) {
+			try {
+				liveBlock.take().destroy();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
 		}
-
+		Integer liveNum = live.incrementAndGet();
 		new Thread() {
 			@Override
 			public void run() {
 				try {
-					live(chanel);
+					live(sdk, chanel, liveNum);
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
 		}.start();
 
-		return rtmpVideo_url + chanel;
+		return rtmpVideo_url + liveNum;
 	}
 
 	@ResponseBody
@@ -310,29 +545,22 @@ public class videoController {
 		return rtmpVideo_url;
 	}
 
-	public void live(String chanel) throws Exception {
+	public void live(TSdk sdk, String chanel, Integer size) throws Exception {
 
-		// date = new Date();
-		// ScheduledExecutorService executor =
-		// Executors.newSingleThreadScheduledExecutor();
-		// executor.scheduleAtFixedRate(new Runnable() {
-		// @Override
-		// public void run() {
-		// if (new Date().getTime() - date.getTime() >= 1000 * 60 * 30) {
-		// p.destroy();
-		// }
-		// }
-		// }, 0, 30, TimeUnit.MINUTES);
 		logger.info("直播通道号为====={}", chanel);
-		chanel_live.add(chanel);
+		// chanel_live.add(chanel);
 		Process p = null;
-		String path = videoController.class.getClassLoader().getResource("").getPath();
-		String commend = path + "ffmpeg -i " + "\"" + rtspVideo_url.replace("chanel", "ch" + chanel)
-				+ "\" -b 400k -f flv -r 8 -s 1280x720 -an " + "\"" + rtmpVideo_url.replace("live", "live" + chanel)
-				+ "\"";
+		String path = VideoController.class.getClassLoader().getResource("").getPath();
+
+		String rtsp = "rtsp://" + sdk.getUser() + ":" + sdk.getPassword() + "@" + sdk.getIp() + ":" + sdk.getPort()
+				+ "/h264/ch" + chanel + "/main/av_stream";
+		String commend = path + "ffmpeg -i " + "\"" + rtsp + "\" -b 400k -f flv -r 8 -s 1280x720 -an " + "\""
+				+ rtmpVideo_url.replace("live", "live" + size) + "\"";
 
 		Runtime rt = Runtime.getRuntime();
 		p = rt.exec(commend);
+		// 将直播进程放到map中
+		liveBlock.put(p);
 
 		StreamGobbler sg1 = new StreamGobbler(p.getInputStream(), "Console");
 		StreamGobbler sg2 = new StreamGobbler(p.getErrorStream(), "Error");
@@ -372,22 +600,13 @@ public class videoController {
 
 	@ResponseBody
 	@RequestMapping("/playBackByTime")
-	public String playBackByTime(String sDate, String eDate, String chanel, String user) {
+	public String playBackByTime(String ip, String port, String sDate, String eDate, String chanel, String user) {
 
-		// if (countBack.get() >= 1) {
-		// String[] ports = playbackport.split(",");
-		// for (String port : ports) {
-		// if (!portCountMap.containsKey(port)) {
-		// return connectBack(sDate, eDate, chanel, port);
-		// }
-		// }
-		//
-		// return "full";
-		// }
-
-		if (s == null || s.getUid() == null) {
-			initSdk();
+		if (ip != null && !sdks.containsKey(ip)) {
+			initSdk(ip, port);
 		}
+
+		Sdk s = sdks.get(ip + port);
 
 		NET_DVR_TIME struStartTime = new NET_DVR_TIME();
 		NET_DVR_TIME struStopTime = new NET_DVR_TIME();
@@ -413,7 +632,7 @@ public class videoController {
 		NativeLong uid = s.getUid();
 
 		File f = new File(
-				videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+				VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 						+ "files\\");
 		if (!f.exists()) {
 			f.mkdirs();
@@ -425,20 +644,28 @@ public class videoController {
 
 		if (userBackMap.get(user) == null) {
 			if (userBackMap.size() == 0 || userBackMap.size() == 3) {
-				return playBack1(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+				return playBack1(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 			} else if (userBackMap.size() == 1) {
-				return playBack2(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+				return playBack2(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 			} else if (userBackMap.size() == 2) {
-				return playBack3(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+				return playBack3(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
+			} else if (userBackMap.size() == 3) {
+				return playBack4(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
+			} else if (userBackMap.size() == 4) {
+				return playBack5(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 			}
 		} else if (userBackMap.get(user) == 1) {
-			return playBack1(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			return playBack1(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 		} else if (userBackMap.get(user) == 2) {
-			return playBack2(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			return playBack2(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 		} else if (userBackMap.get(user) == 3) {
-			return playBack3(chanel, struStartTime, struStopTime, sdk, uid, f,user);
+			return playBack3(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
+		} else if (userBackMap.get(user) == 4) {
+			return playBack4(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
+		} else if (userBackMap.get(user) == 5) {
+			return playBack5(s, chanel, struStartTime, struStopTime, sdk, uid, f, user);
 		}
-		
+
 		return "";
 
 	}
@@ -446,6 +673,7 @@ public class videoController {
 	/**
 	 * 
 	 * 第一回调函数
+	 * 
 	 * @param chanel
 	 * @param struStartTime
 	 * @param struStopTime
@@ -454,13 +682,13 @@ public class videoController {
 	 * @param f
 	 * @return
 	 */
-	private String playBack1(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
-			NativeLong uid, File f,String user) {
+	private String playBack1(Sdk s, String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f, String user) {
 		if (s.getlPreviewHandle_back() != null) {
-			stopPlayBack(1);
+			stopPlayBack(s, 1);
 		}
-		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
-				struStartTime, struStopTime, null);
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
+				struStopTime, null);
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
 			return "";
@@ -490,6 +718,7 @@ public class videoController {
 	/**
 	 * 
 	 * 第二回调函数
+	 * 
 	 * @param chanel
 	 * @param struStartTime
 	 * @param struStopTime
@@ -498,13 +727,13 @@ public class videoController {
 	 * @param f
 	 * @return
 	 */
-	private String playBack2(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
-			NativeLong uid, File f,String user) {
+	private String playBack2(Sdk s, String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f, String user) {
 		if (s.getlPreviewHandle_back1() != null) {
-			stopPlayBack(2);
+			stopPlayBack(s, 2);
 		}
-		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
-				struStartTime, struStopTime, null);
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
+				struStopTime, null);
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
 			return "";
@@ -534,6 +763,7 @@ public class videoController {
 	/**
 	 * 
 	 * 第三回调函数
+	 * 
 	 * @param chanel
 	 * @param struStartTime
 	 * @param struStopTime
@@ -542,13 +772,13 @@ public class videoController {
 	 * @param f
 	 * @return
 	 */
-	private String playBack3(String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
-			NativeLong uid, File f,String user) {
+	private String playBack3(Sdk s, String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f, String user) {
 		if (s.getlPreviewHandle_back2() != null) {
-			stopPlayBack(3);
+			stopPlayBack(s, 3);
 		}
-		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)),
-				struStartTime, struStopTime, null);
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
+				struStopTime, null);
 		if (m_lPlayHandle.intValue() == -1) {
 			logger.info("按时间回放失败!");
 			return "";
@@ -575,6 +805,96 @@ public class videoController {
 		return fileName2;
 	}
 
+	/**
+	 * 
+	 * 第三回调函数
+	 * 
+	 * @param chanel
+	 * @param struStartTime
+	 * @param struStopTime
+	 * @param sdk
+	 * @param uid
+	 * @param f
+	 * @return
+	 */
+	private String playBack4(Sdk s, String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f, String user) {
+		if (s.getlPreviewHandle_back3() != null) {
+			stopPlayBack(s, 4);
+		}
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
+				struStopTime, null);
+		if (m_lPlayHandle.intValue() == -1) {
+			logger.info("按时间回放失败!");
+			return "";
+		}
+		fileName3 = UUID.randomUUID().toString().substring(0, 5);
+		if (fPlayDataCallBack3 == null) {
+			fPlayDataCallBack3 = new FRealDataCallBack3();
+		}
+		sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack3, uid.intValue());
+		s.setlPreviewHandle_back3(m_lPlayHandle);
+		// 还要调用该接口才能开始回放
+		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
+		try {
+			Thread.sleep(1000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (!new File(f.getAbsolutePath() + "\\" + fileName3 + ".h264").exists()) {
+			return "";
+		}
+		userBackMap.put(user, 4);
+		countBack.addAndGet(1);
+
+		return fileName3;
+	}
+
+	/**
+	 * 
+	 * 第三回调函数
+	 * 
+	 * @param chanel
+	 * @param struStartTime
+	 * @param struStopTime
+	 * @param sdk
+	 * @param uid
+	 * @param f
+	 * @return
+	 */
+	private String playBack5(Sdk s, String chanel, NET_DVR_TIME struStartTime, NET_DVR_TIME struStopTime, HCNetSDK sdk,
+			NativeLong uid, File f, String user) {
+		if (s.getlPreviewHandle_back2() != null) {
+			stopPlayBack(s, 5);
+		}
+		NativeLong m_lPlayHandle = sdk.NET_DVR_PlayBackByTime(uid, new NativeLong(Long.valueOf(chanel)), struStartTime,
+				struStopTime, null);
+		if (m_lPlayHandle.intValue() == -1) {
+			logger.info("按时间回放失败!");
+			return "";
+		}
+		fileName4 = UUID.randomUUID().toString().substring(0, 5);
+		if (fPlayDataCallBack4 == null) {
+			fPlayDataCallBack4 = new FRealDataCallBack4();
+		}
+		sdk.NET_DVR_SetPlayDataCallBack(m_lPlayHandle, fPlayDataCallBack4, uid.intValue());
+		s.setlPreviewHandle_back4(m_lPlayHandle);
+		// 还要调用该接口才能开始回放
+		sdk.NET_DVR_PlayBackControl(m_lPlayHandle, HCNetSDK.NET_DVR_PLAYSTART, 0, null);
+		try {
+			Thread.sleep(1000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (!new File(f.getAbsolutePath() + "\\" + fileName4 + ".h264").exists()) {
+			return "";
+		}
+		userBackMap.put(user, 5);
+		countBack.addAndGet(1);
+
+		return fileName4;
+	}
+
 	@ResponseBody
 	@RequestMapping("/stopPlayBack")
 	public String stopPlayBack(String fileName) {
@@ -595,7 +915,7 @@ public class videoController {
 		return "success";
 	}
 
-	private void stopPlayBack(Integer backNum) {
+	private void stopPlayBack(Sdk s, Integer backNum) {
 
 		HCNetSDK sdk = s.getSdk();
 		NativeLong handle = null;
@@ -608,6 +928,12 @@ public class videoController {
 		} else if (backNum == 3) {
 			handle = s.getlPreviewHandle_back2();
 			s.setlPreviewHandle_back2(null);
+		} else if (backNum == 4) {
+			handle = s.getlPreviewHandle_back3();
+			s.setlPreviewHandle_back3(null);
+		} else if (backNum == 5) {
+			handle = s.getlPreviewHandle_back4();
+			s.setlPreviewHandle_back4(null);
 		}
 		sdk.NET_DVR_PlayBackControl(handle, HCNetSDK.NET_DVR_PLAYSTOPAUDIO, 0, null);
 		sdk.NET_DVR_StopPlayBack(handle);
@@ -627,7 +953,7 @@ public class videoController {
 			try {
 
 				out = new FileOutputStream(new File(
-						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+						VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 								+ "files\\" + fileName + ".h264"),
 						true);
 			} catch (FileNotFoundException e) {
@@ -660,7 +986,7 @@ public class videoController {
 			try {
 
 				out = new FileOutputStream(new File(
-						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+						VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 								+ "files\\" + fileName1 + ".h264"),
 						true);
 			} catch (FileNotFoundException e) {
@@ -693,8 +1019,74 @@ public class videoController {
 			try {
 
 				out = new FileOutputStream(new File(
-						videoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+						VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
 								+ "files\\" + fileName2 + ".h264"),
+						true);
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			}
+			byte[] bytes = pBuffer.getPointer().getByteArray(0, dwBufSize);
+			try {
+				out.write(bytes, 0, bytes.length);
+			} catch (IOException e) {
+				e.printStackTrace();
+			} finally {
+				try {
+					out.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+
+			System.gc();
+		}
+	}
+
+	class FRealDataCallBack3 implements HCNetSDK.FPlayDataCallBack {
+
+		@Override
+		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
+
+			System.out.println("回调函数3操作文件=========:" + fileName3);
+			OutputStream out = null;
+			try {
+
+				out = new FileOutputStream(new File(
+						VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+								+ "files\\" + fileName3 + ".h264"),
+						true);
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			}
+			byte[] bytes = pBuffer.getPointer().getByteArray(0, dwBufSize);
+			try {
+				out.write(bytes, 0, bytes.length);
+			} catch (IOException e) {
+				e.printStackTrace();
+			} finally {
+				try {
+					out.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+
+			System.gc();
+		}
+	}
+
+	class FRealDataCallBack4 implements HCNetSDK.FPlayDataCallBack {
+
+		@Override
+		public void invoke(NativeLong lPlayHandle, int dwDataType, ByteByReference pBuffer, int dwBufSize, int dwUser) {
+
+			System.out.println("回调函数4操作文件=========:" + fileName4);
+			OutputStream out = null;
+			try {
+
+				out = new FileOutputStream(new File(
+						VideoController.class.getClassLoader().getResource("").getPath().substring(1).replace("/", "\\")
+								+ "files\\" + fileName4 + ".h264"),
 						true);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();

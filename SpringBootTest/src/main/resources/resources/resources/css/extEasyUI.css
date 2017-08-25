@@ -1,0 +1,13 @@
+*{font-family:"微软雅黑";}
+.formTable{margin-top: 5px; margin-left: 5px;}
+.table{line-height: 30px;}
+input,textarea{font-size: 12px;}
+input[type=radio]{width:10px;height:10px;}
+
+input[type=text]{width:100px;height:20px;border-width: 1px;}
+input[type=password]{width:100px;height:20px;border-width: 1px;}
+
+/*easyui btn样式*/
+.l-btn-text{margin: 0px 10px}
+.dialog-tool-separator{float: none;}
+.menuItem{text-align:left;}

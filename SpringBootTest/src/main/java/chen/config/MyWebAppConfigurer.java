@@ -1,12 +1,17 @@
 package chen.config;
 
+import java.nio.charset.Charset;
+import java.util.List;
+
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
 
 import chen.servlet.MyInterceptor1;
-import chen.servlet.MyInterceptor2;
 
 @Configuration
 public class MyWebAppConfigurer extends WebMvcConfigurerAdapter {
@@ -32,8 +37,19 @@ public class MyWebAppConfigurer extends WebMvcConfigurerAdapter {
         // addPathPatterns 用于添加拦截规则
         // excludePathPatterns 用户排除拦截
         registry.addInterceptor(new MyInterceptor1()).addPathPatterns("/**");
-//        registry.addInterceptor(new MyInterceptor2()).addPathPatterns("/**");
         super.addInterceptors(registry);
+    }
+    
+    @Bean
+    public HttpMessageConverter<String> responseBodyConverter() {
+        StringHttpMessageConverter converter = new StringHttpMessageConverter(Charset.forName("UTF-8"));
+        return converter;
+    }
+
+    @Override
+    public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+        super.configureMessageConverters(converters);
+        converters.add(responseBodyConverter());
     }
 
 }

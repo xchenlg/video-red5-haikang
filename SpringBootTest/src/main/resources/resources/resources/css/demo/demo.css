@@ -1,0 +1,44 @@
+@CHARSET "UTF-8";
+
+body {
+	font-family: "Microsoft Yahei", arial, simhei;
+	font-size: 14px;
+	color: #FAFAD2;
+	background-attachment: fixed;
+}
+
+.mapAndPie {
+	width: 100%;
+    height: 300px;
+}
+
+.pieDiv {
+	width: 50%;
+	height: 100%;
+	float: left;
+}
+
+.mapDiv {
+	width: 50%;
+	height: 100%;
+	float: right;
+}
+.barDiv{
+	width:100%;
+	height:300px;
+}
+
+.pie {
+	widht: 100%;
+	height: 100%;
+}
+
+.bar {
+	width: 100%;
+	height: 100%;
+}
+
+.map {
+	widht: 100%;
+	height: 100%;
+}

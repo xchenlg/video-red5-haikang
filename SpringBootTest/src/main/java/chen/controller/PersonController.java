@@ -1,14 +1,18 @@
 package chen.controller;
 
+import java.io.IOException;
 import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,6 +27,38 @@ public class PersonController {
 
 	@Autowired
 	private PersonService personService;
+
+	@RequestMapping(value = "/login", method = RequestMethod.GET)
+	public String login() {
+		return "login";
+	}
+
+	@ResponseBody
+	@RequestMapping(value = "/login", method = RequestMethod.POST)
+	public Boolean login(String user, String password, HttpServletRequest request) {
+		List<Person> persons = personService.findByNameAndPassword(user, password);
+		if (persons.size() > 0) {
+			HttpSession session = request.getSession();
+			session.invalidate();
+			session = request.getSession(true);
+			session.setAttribute("user", user);
+			return true;
+		}
+		return false;
+	}
+
+	@RequestMapping("/logout")
+	public void logout(HttpServletRequest request, HttpServletResponse response, HttpSession session) {
+
+		session.removeAttribute("user");
+		/** 注销session */
+		session.invalidate();
+		try {
+			response.sendRedirect(request.getContextPath() + "/login.jsp");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 
 	/**
 	 * 测试person保存

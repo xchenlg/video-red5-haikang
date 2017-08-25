@@ -1,0 +1,21 @@
+table {
+	width: 100%;
+	align: center;
+	border: 0;
+	cellspacing: 0;
+	cellpadding: 1;
+}
+
+table tr {
+	height: 30px;
+}
+
+table th {
+	width: 200px;
+	text-align: right;
+}
+
+table td {
+	padding-left: 15px;
+	word-break: break-all;
+}
